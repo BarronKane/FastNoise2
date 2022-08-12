@@ -12,13 +12,15 @@ public class FastNoise2 : ModuleRules
         Type = ModuleType.External;
         PublicIncludePaths.Add(Path.Combine(ModuleDirectory, "include"));
 
+		string CMakeBuildDir = Path.Combine(GetIntermediateDir(), "FastNoise2Build");
 		string CMake = SetupCMake(Target);
-		string CMakeBuildCommand = CreateCMakeBuildCommand(Target);
-		string CMakeInstallCommand = CreateCMakeInstallCommand();
+		string CMakeBuildCommand = CreateCMakeBuildCommand(Target, CMakeBuildDir);
+		string CMakeInstallCommand = CreateCMakeInstallCommand(Target, CMakeBuildDir);
 
+		Log.TraceInformation("Building FastNoise2: Delete Intermediate Folder to re-fetch CMake");
 		Log.TraceInformation("TARGET PLATFORM: {0}", Target.Platform);
 		Log.TraceInformation("{0}", (Target.Platform == UnrealTargetPlatform.Win64));
-		Log.TraceInformation("Building with: {0}", CMakeBuildCommand);
+		Log.TraceInformation("Building with: \n {0} \n {1}", CMakeBuildCommand, CMakeInstallCommand);
 		BuildModel(Target, CMake, CMakeBuildCommand);
 		BuildModel(Target, CMake, CMakeInstallCommand);
     }
@@ -35,14 +37,14 @@ public class FastNoise2 : ModuleRules
 		string CMakeVersion = "3.24.0/";
 
 		string Win64CMake = "cmake-3.24.0-windows-x86_64";
-		//string Linux64CMake = "cmake-3.24.0-linux-x86_64";
-		//string Mac64CMake = "cmake-3.24.0-macos10.10-universal";
+		string Linux64CMake = "cmake-3.24.0-linux-x86_64";
+		string Mac64CMake = "cmake-3.24.0-macos10.10-universal";
 
 		string GetFileBatch = Path.Combine(GetThirdPartyDir(), "BatchFiles", "GetFile.bat");
 		string GetUnzipBatch = Path.Combine(GetThirdPartyDir(), "BatchFiles", "Unzip.bat");
 
-		//string GetFileShell = Path.Combine(GetThirdPartyDir(), "BatchFiles", "GetFile.sh");
-		//string GetUnzipShell = Path.Combine(GetThirdPartyDir(), "BatchFiles", "Unzip.sh");
+		string GetFileShell = Path.Combine(GetThirdPartyDir(), "BatchFiles", "GetFile.sh");
+		string GetUnzipShell = Path.Combine(GetThirdPartyDir(), "BatchFiles", "Unzip.sh");
 
 		string FinalPath = "";
 		string exe = "cmake.exe";
@@ -58,26 +60,28 @@ public class FastNoise2 : ModuleRules
 			}
 			FinalPath = Win64CMake;
 		}
-		/*
 		else if (Target.Platform == UnrealTargetPlatform.Linux)
 		{
-			throw new BuildException("Cannot build FastNoise2, unimplimented platform: {0}", Target.Platform);
-			string url = BaseUrl + CMakeVersion + Linux64CMake + ".tar.gz";
-			ExecuteBatch(Target, GetFileBatch, url, CMakeZipPath);
-			ExecuteBatch(Target, GetUnzipBatch, CMakeZipPath, CMakeInstallPath);
+			if (!File.Exists(CMakeZipPath))
+			{
+				string url = BaseUrl + CMakeVersion + Linux64CMake + ".tar.gz";
+				ExecuteBatch(Target, GetFileBatch, url, CMakeZipPath);
+				ExecuteBatch(Target, GetUnzipBatch, CMakeZipPath, CMakeInstallPath);
+			}
 			FinalPath = Linux64CMake;
 			exe = "cmake";
 		}
 		else if ((Target.Platform == UnrealTargetPlatform.Mac) || (Target.Platform == UnrealTargetPlatform.IOS))
 		{
-			throw new BuildException("Cannot build FastNoise2, unimplimented platform: {0}", Target.Platform);
-			string url = BaseUrl + CMakeVersion + Mac64CMake + ".tar.gz";
-			ExecuteBatch(Target, GetFileBatch, url, CMakeZipPath);
-			ExecuteBatch(Target, GetUnzipBatch, CMakeZipPath, CMakeInstallPath);
+			if (!File.Exists(CMakeZipPath))
+			{
+				string url = BaseUrl + CMakeVersion + Mac64CMake + ".tar.gz";
+				ExecuteBatch(Target, GetFileBatch, url, CMakeZipPath);
+				ExecuteBatch(Target, GetUnzipBatch, CMakeZipPath, CMakeInstallPath);
+			}
 			FinalPath = "CMake.app";
 			exe = "cmake";
 		}
-		*/
 		else
 		{
 			throw new BuildException("Cannot build FastNoise2, unsupported platform: {0}", Target.Platform);
@@ -91,10 +95,9 @@ public class FastNoise2 : ModuleRules
 		return Path.Combine(CMakeInstallPath, FinalPath, "bin", exe);
 	}
 
-	private string CreateCMakeBuildCommand(ReadOnlyTargetRules Target)
+	private string CreateCMakeBuildCommand(ReadOnlyTargetRules Target, string CMakeBuildDir)
 	{
-		string BuildDir = Path.Combine(GetIntermediateDir(), "CMakeBuild");
-		Directory.CreateDirectory(BuildDir);
+		Directory.CreateDirectory(CMakeBuildDir);
 
 		string Generator = "";
 		if (Target.Platform == UnrealTargetPlatform.Win64)
@@ -103,16 +106,26 @@ public class FastNoise2 : ModuleRules
 		}
 
 		string Arguments = Generator +
-			" BUILD_SHARED_LIBS=ON " +
+			" BUILD_SHARED_LIBS=OFF " +
 			" -S " + GetThirdPartyDir() +
-			" -B " + BuildDir;
+			" -B " + CMakeBuildDir;
 
 		return Arguments;
 	}
 
-	private string CreateCMakeInstallCommand()
+	private string CreateCMakeInstallCommand(ReadOnlyTargetRules Target, string CMakeBuildDir)
 	{
-		return " --build " + Path.Combine(GetIntermediateDir(), "CMakeBuild");
+		string BuildType;
+		if (Target.Configuration == UnrealTargetConfiguration.Debug)
+		{
+			BuildType = "Debug";
+		}
+		else
+		{
+			BuildType = "Release";
+		}
+
+		return " --build " + CMakeBuildDir + " --config " + BuildType;
 	}
 
 	private void BuildModel(ReadOnlyTargetRules Target, string CMake, string Command)
@@ -129,11 +142,12 @@ public class FastNoise2 : ModuleRules
 		var process = Process.Start(processInfo);
 
 		process.OutputDataReceived += (object sender, DataReceivedEventArgs e) =>
-			Log.TraceInformation("output>>" + e.Data);
+			Log.TraceInformation("FastNoise2:" + e.Data);
 		process.BeginOutputReadLine();
 
+		// Right now everything is read as error data. Bug.
 		process.ErrorDataReceived += (object sender, DataReceivedEventArgs e) =>
-			Log.TraceInformation("output>>" + e.Data);
+			Log.TraceInformation("FastNoise2:" + e.Data);
 		process.BeginErrorReadLine();
 
 		process.WaitForExit();
@@ -150,15 +164,18 @@ public class FastNoise2 : ModuleRules
 	private void ExecuteBatch(ReadOnlyTargetRules Target, string file, string arg1, string arg2)
 	{
 		string Command;
+		var processInfo = new ProcessStartInfo();
 		if (Target.Platform == UnrealTargetPlatform.Win64)
 		{
-			Command = "cmd.exe /c ";
+			processInfo.FileName = "cmd.exe";
+			Command = " /c ";
 		}
 		else
 		{
-			Command = "/bin/bash ";
+			processInfo.FileName = "/bin/bash";
+			Command = " ";
 		}
-		var processInfo = new ProcessStartInfo(Command + file + " " + arg1 + " " + arg2);
+		processInfo.Arguments = Command + file + " " + arg1 + " " + arg2;
 		processInfo.CreateNoWindow = true;
 		processInfo.UseShellExecute = false;
 		processInfo.RedirectStandardError = true;
@@ -167,11 +184,11 @@ public class FastNoise2 : ModuleRules
 		var process = Process.Start(processInfo);
 
 		process.OutputDataReceived += (object sender, DataReceivedEventArgs e) =>
-			Log.TraceInformation("output>>" + e.Data);
+			Log.TraceInformation("FastNoise2:" + e.Data);
 		process.BeginOutputReadLine();
 
 		process.ErrorDataReceived += (object sender, DataReceivedEventArgs e) =>
-			Log.TraceInformation("output>>" + e.Data);
+			Log.TraceInformation("FastNoise2:" + e.Data);
 		process.BeginErrorReadLine();
 
 		process.WaitForExit();
