@@ -21,9 +21,72 @@ public class FastNoise2 : ModuleRules
 		Log.TraceInformation("TARGET PLATFORM: {0}", Target.Platform);
 		Log.TraceInformation("{0}", (Target.Platform == UnrealTargetPlatform.Win64));
 		Log.TraceInformation("Building with: \n {0} \n {1}", CMakeBuildCommand, CMakeInstallCommand);
-		BuildModel(Target, CMake, CMakeBuildCommand);
-		BuildModel(Target, CMake, CMakeInstallCommand);
-    }
+
+		string platform = "";
+		string StaticFileEnding = ".lib";
+		string SharedFileEnding = "";
+
+		if (Target.Platform == UnrealTargetPlatform.Win64)
+		{
+			SharedFileEnding = ".dll";
+			platform = "Win64";
+		}
+		else if (Target.Platform == UnrealTargetPlatform.Linux)
+		{
+			SharedFileEnding = ".so";
+		}
+		else if ((Target.Platform == UnrealTargetPlatform.Mac) || (Target.Platform == UnrealTargetPlatform.IOS))
+		{
+			SharedFileEnding = ".dylib";
+		}
+
+		string FNDebugLib = Path.Combine(CMakeBuildDir, "Debug", "lib", "FastNoiseD" + StaticFileEnding);
+		string FNDebugDLL = Path.Combine(CMakeBuildDir, "Debug", "bin", "FastNoiseD" + SharedFileEnding);
+		string PdbFile = Path.Combine(CMakeBuildDir, "pdb-files", "Debug", "FastNoiseD.pdb");
+		string FNReleaseLib = Path.Combine(CMakeBuildDir, "Release", "lib", "FastNoise" + StaticFileEnding);
+		string FNReleaseDLL = Path.Combine(CMakeBuildDir, "Release", "bin", "FastNoise" + SharedFileEnding);
+
+		string PrimaryBuildDirectory = Path.Combine(PluginDirectory, "Binaries", "ThirdParty", "FastNoise2", platform);
+		Directory.CreateDirectory(PrimaryBuildDirectory);
+
+		if ((Target.Configuration == UnrealTargetConfiguration.Debug) || (Target.Configuration == UnrealTargetConfiguration.DebugGame))
+		{
+			if ((!File.Exists(Path.Combine(PrimaryBuildDirectory, Path.GetFileName(FNDebugLib)))))
+			{
+				BuildModel(Target, CMake, CMakeBuildCommand);
+				BuildModel(Target, CMake, CMakeInstallCommand);
+			}
+
+			Log.TraceInformation("MOVING DEBUG FILES:");
+			Log.TraceInformation("{0}\n{1}", PdbFile, Path.Combine(PrimaryBuildDirectory, Path.GetFileName(PdbFile)));
+			File.Copy(FNDebugLib, Path.Combine(PrimaryBuildDirectory, Path.GetFileName(FNDebugLib)), true);
+			File.Copy(FNDebugDLL, Path.Combine(PrimaryBuildDirectory, Path.GetFileName(FNDebugDLL)), true);
+			File.Copy(PdbFile, Path.Combine(PrimaryBuildDirectory, Path.GetFileName(PdbFile)), true);
+
+
+			PublicAdditionalLibraries.Add(Path.Combine(PrimaryBuildDirectory, Path.GetFileName(FNDebugLib)));
+			PublicDelayLoadDLLs.Add("FastNoiseD.dll");
+			RuntimeDependencies.Add("$(PluginDir)/Binaries/ThirdParty/FastNoise2/Win64/FastNoiseD.dll");
+		}
+		else
+		{
+			if (!File.Exists(Path.Combine(PrimaryBuildDirectory, Path.GetFileName(FNReleaseDLL))))
+			{
+				BuildModel(Target, CMake, CMakeBuildCommand);
+				BuildModel(Target, CMake, CMakeInstallCommand);
+			}
+
+			Log.TraceInformation("MOVING RELEASE FILES");
+			File.Copy(FNReleaseLib, Path.Combine(PrimaryBuildDirectory, Path.GetFileName(FNReleaseLib)), true);
+			File.Copy(FNReleaseDLL, Path.Combine(PrimaryBuildDirectory, Path.GetFileName(FNReleaseDLL)), true);
+
+			PublicAdditionalLibraries.Add(Path.Combine(PrimaryBuildDirectory, Path.GetFileName(FNReleaseLib)));
+			PublicDelayLoadDLLs.Add("FastNoise.dll");
+			RuntimeDependencies.Add("$(PluginDir)/Binaries/ThirdParty/FastNoise2/Win64/FastNoise.dll");
+		}
+
+
+	}
 
 	private string SetupCMake(ReadOnlyTargetRules Target)
 	{
@@ -106,9 +169,9 @@ public class FastNoise2 : ModuleRules
 		}
 
 		string Arguments = Generator +
-			" BUILD_SHARED_LIBS=OFF " +
 			" -S " + GetThirdPartyDir() +
-			" -B " + CMakeBuildDir;
+			" -B " + CMakeBuildDir +
+			" -D" + " BUILD_SHARED_LIBS=ON ";
 
 		return Arguments;
 	}
@@ -116,7 +179,7 @@ public class FastNoise2 : ModuleRules
 	private string CreateCMakeInstallCommand(ReadOnlyTargetRules Target, string CMakeBuildDir)
 	{
 		string BuildType;
-		if (Target.Configuration == UnrealTargetConfiguration.Debug)
+		if ((Target.Configuration == UnrealTargetConfiguration.Debug) || (Target.Configuration == UnrealTargetConfiguration.DebugGame))
 		{
 			BuildType = "Debug";
 		}
